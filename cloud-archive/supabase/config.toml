@@ -1,0 +1,10 @@
+project_id = "aihpemmrsbpmxidbydqp"
+
+[functions.account-bootstrap]
+verify_jwt = false
+
+[functions.progress-picture-media]
+verify_jwt = false
+
+[functions.program-cover-media]
+verify_jwt = false
