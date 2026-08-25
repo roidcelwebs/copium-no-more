@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ProgressPictureTile } from "./ProgressPictureTile";
 import { ProgressPictureUploadDialog } from "./ProgressPictureUploadDialog";
+import { ProgressConsistencyGraph } from "./ProgressConsistencyGraph";
 
 export function ProgressPicturesDashboardSection({
   clientId,
@@ -78,6 +79,8 @@ export function ProgressPicturesDashboardSection({
           <HabitProgress completedDays={habitDays} />
         )}
       </Link>
+
+      <ProgressConsistencyGraph batches={batches} />
 
       {error && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3">

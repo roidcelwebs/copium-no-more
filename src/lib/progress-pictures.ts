@@ -104,3 +104,113 @@ export function formatProgressPictureDate(captureDate: string, format: "long" | 
       : { month: "short", day: "numeric", year: "2-digit" },
   ).format(date);
 }
+
+export type ConsistencyPoint = {
+  date: string;
+  level: number;
+  uploaded: boolean;
+};
+
+export type ProgressConsistencyData = {
+  hasUploadedAny: boolean;
+  currentLevel: number;
+  streakDays: number;
+  isStreakMode: boolean;
+  points: ConsistencyPoint[];
+};
+
+/**
+ * Calculates consistency level (0-7) and streak metrics across the last 7 calendar days.
+ * - Level starts at baseline 0.
+ * - Each day with an upload climbs +1 level up to 7.
+ * - Each missed day steps down -1 level down to 0.
+ * - If currentLevel reaches 7, switches to Streak Mode with the red fire icon.
+ */
+export function calculateProgressPictureConsistency(
+  batches: readonly ProgressPictureBatch[],
+  referenceDate = new Date(),
+): ProgressConsistencyData {
+  const uniqueDates = new Set(
+    batches
+      .map((batch) => batch.captureDate)
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
+  );
+
+  const hasUploadedAny = uniqueDates.size > 0;
+  if (!hasUploadedAny) {
+    return {
+      hasUploadedAny: false,
+      currentLevel: 0,
+      streakDays: 0,
+      isStreakMode: false,
+      points: [],
+    };
+  }
+
+  // Generate date array for the last 7 calendar days (from referenceDate - 6 days to referenceDate)
+  const days: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(referenceDate);
+    d.setDate(d.getDate() - i);
+    days.push(localProgressPictureDate(d));
+  }
+
+  // Calculate level curve across the 7 days
+  let runningLevel = 0;
+  const points: ConsistencyPoint[] = [];
+
+  for (let i = 0; i < days.length; i++) {
+    const dateStr = days[i];
+    const uploaded = uniqueDates.has(dateStr);
+    if (uploaded) {
+      runningLevel = Math.min(7, runningLevel + 1);
+    } else {
+      runningLevel = Math.max(0, runningLevel - 1);
+    }
+    // On the very first upload day in history, guarantee level is at least 1
+    if (i === days.length - 1 && hasUploadedAny && runningLevel === 0) {
+      runningLevel = 1;
+    }
+    points.push({
+      date: dateStr,
+      level: runningLevel,
+      uploaded,
+    });
+  }
+
+  // Calculate consecutive streak days counting backwards from today/yesterday
+  let streakDays = 0;
+  const todayStr = localProgressPictureDate(referenceDate);
+  const checkDate = new Date(referenceDate);
+
+  // If today has no upload, start check from yesterday
+  if (!uniqueDates.has(todayStr)) {
+    checkDate.setDate(checkDate.getDate() - 1);
+  }
+
+  for (let i = 0; i < 365; i++) {
+    const dStr = localProgressPictureDate(checkDate);
+    if (uniqueDates.has(dStr)) {
+      streakDays++;
+      checkDate.setDate(checkDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+
+  // Fallback: If has uploaded any, streak is at least 1 if uploaded recently
+  if (streakDays === 0 && hasUploadedAny) {
+    streakDays = Math.min(uniqueDates.size, 1);
+  }
+
+  const currentLevel = points[points.length - 1]?.level ?? (hasUploadedAny ? 1 : 0);
+  const isStreakMode = currentLevel >= 7 || streakDays >= 7;
+
+  return {
+    hasUploadedAny,
+    currentLevel,
+    streakDays: Math.max(streakDays, currentLevel),
+    isStreakMode,
+    points,
+  };
+}
