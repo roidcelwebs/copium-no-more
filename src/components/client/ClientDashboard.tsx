@@ -41,6 +41,9 @@ export function ClientDashboard() {
   const [todayWorkoutIds, setTodayWorkoutIds] = useState<string[]>([]);
   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
   const [resolvedStreakEventId, setResolvedStreakEventId] = useState<string | null>(null);
+  const progressPictures = useProgressPictureBatches(
+    client?.role === "client" ? client.id : undefined,
+  );
 
   const brokenStreakInfo = useMemo(() => {
     if (!client || client.role !== "client") {
@@ -48,9 +51,6 @@ export function ClientDashboard() {
     }
     return checkBrokenStreak(progressPictures.batches, client.id, now);
   }, [client, progressPictures.batches, now]);
-  const progressPictures = useProgressPictureBatches(
-    client?.role === "client" ? client.id : undefined,
-  );
 
   useEffect(() => {
     const loadCachedCoachData = () => {
