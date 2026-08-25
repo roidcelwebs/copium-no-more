@@ -1,0 +1,436 @@
+diff --git a/src/components/client/ClientDashboard.tsx b/src/components/client/ClientDashboard.tsx
+index d81802f..9e7a27c 100644
+--- a/src/components/client/ClientDashboard.tsx
++++ b/src/components/client/ClientDashboard.tsx
+@@ -15,6 +15,8 @@ import {
+ } from "@/components/ui/alert-dialog";
+ import { useAccount } from "@/components/account/AccountProvider";
+ import { ProgressPicturesDashboardSection } from "@/components/client/progress-pictures/ProgressPicturesDashboardSection";
++import { StreakBrokenModal } from "@/components/client/progress-pictures/StreakBrokenModal";
++import { checkBrokenStreak } from "@/lib/progress-pictures";
+ import { useChat } from "@/components/chat/ChatProvider";
+ import {
+   type DayAssignment,
+@@ -38,6 +40,14 @@ export function ClientDashboard() {
+   const [hydrated, setHydrated] = useState(false);
+   const [todayWorkoutIds, setTodayWorkoutIds] = useState<string[]>([]);
+   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
++  const [resolvedStreakEventId, setResolvedStreakEventId] = useState<string | null>(null);
++
++  const brokenStreakInfo = useMemo(() => {
++    if (!client || client.role !== "client") {
++      return { isBroken: false, previousStreak: 0, eventId: "" };
++    }
++    return checkBrokenStreak(progressPictures.batches, client.id, now);
++  }, [client, progressPictures.batches, now]);
+   const progressPictures = useProgressPictureBatches(
+     client?.role === "client" ? client.id : undefined,
+   );
+@@ -264,6 +274,17 @@ export function ClientDashboard() {
+         onRetry={() => void progressPictures.refresh()}
+         onUploaded={progressPictures.refresh}
+       />
++
++      {brokenStreakInfo.isBroken && resolvedStreakEventId !== brokenStreakInfo.eventId && client && (
++        <StreakBrokenModal
++          clientId={client.id}
++          brokenInfo={brokenStreakInfo}
++          onResolved={() => {
++            setResolvedStreakEventId(brokenStreakInfo.eventId);
++            void progressPictures.refresh();
++          }}
++        />
++      )}
+     </div>
+   );
+ }
+diff --git a/src/components/client/progress-pictures/StreakBrokenModal.tsx b/src/components/client/progress-pictures/StreakBrokenModal.tsx
+new file mode 100644
+index 0000000..6a9426b
+--- /dev/null
++++ b/src/components/client/progress-pictures/StreakBrokenModal.tsx
+@@ -0,0 +1,213 @@
++import { useState } from "react";
++import { Flame, Sparkles, Check, HeartHandshake } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogHeader,
++  DialogTitle,
++} from "@/components/ui/dialog";
++import {
++  type BrokenStreakCheck,
++  decrementStreakRevives,
++  dismissBrokenStreakNotice,
++  readStreakRevives,
++} from "@/lib/progress-pictures";
++
++type ModalStep = "initial" | "revived" | "zero_prompt" | "hal_message";
++
++export function StreakBrokenModal({
++  clientId,
++  brokenInfo,
++  onResolved,
++}: {
++  clientId: string;
++  brokenInfo: BrokenStreakCheck;
++  onResolved: () => void;
++}) {
++  const [open, setOpen] = useState(true);
++  const [step, setStep] = useState<ModalStep>("initial");
++  const [revivesLeft, setRevivesLeft] = useState(() => readStreakRevives(clientId));
++  const [isAnimating, setIsAnimating] = useState(false);
++
++  const handleReviveClick = () => {
++    if (revivesLeft <= 0) {
++      setStep("zero_prompt");
++      return;
++    }
++
++    setIsAnimating(true);
++    // Smooth transition: decrement revives and illuminate icon
++    setTimeout(() => {
++      const nextCount = decrementStreakRevives(clientId);
++      setRevivesLeft(nextCount);
++      setStep("revived");
++      setIsAnimating(false);
++    }, 450);
++  };
++
++  const handleClose = () => {
++    dismissBrokenStreakNotice(clientId, brokenInfo.eventId);
++    setOpen(false);
++    onResolved();
++  };
++
++  return (
++    <Dialog
++      open={open}
++      onOpenChange={(next) => {
++        if (!next) handleClose();
++      }}
++    >
++      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md text-center p-6 bg-[#0d0d0d] border border-border">
++        {step === "initial" && (
++          <div className="space-y-6">
++            <DialogHeader className="space-y-1.5 text-center">
++              <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
++                Progress Picture Streak Broken
++              </DialogTitle>
++              <DialogDescription className="text-[0.9375rem] text-muted-foreground">
++                You missed yesterday&apos;s daily picture upload window.
++              </DialogDescription>
++            </DialogHeader>
++
++            {/* Fire Icon Container with Top-Left Streak Count Badge */}
++            <div className="flex justify-center py-2">
++              <div className="relative inline-flex items-center justify-center p-4">
++                {/* Top-Left Streak Badge */}
++                <span className="absolute -top-1 -left-1 flex h-8 min-w-8 items-center justify-center rounded-full border border-border bg-card px-2 text-xs font-bold tabular-nums text-foreground shadow-sm">
++                  {brokenInfo.previousStreak}
++                </span>
++
++                {/* Gray Fire Icon */}
++                <div className="flex h-24 w-24 items-center justify-center rounded-2xl border border-border/80 bg-black/40">
++                  <Flame className="h-14 w-14 fill-zinc-600/40 text-zinc-500" strokeWidth={1.5} />
++                </div>
++              </div>
++            </div>
++
++            {/* Revive Action Area */}
++            <div className="space-y-3 pt-1">
++              {!isAnimating && (
++                <Button
++                  type="button"
++                  onClick={handleReviveClick}
++                  className="min-h-12 w-full rounded-xl bg-primary text-[1rem] font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.98]"
++                >
++                  <Sparkles className="mr-2 h-5 w-5" />
++                  Revive Streak
++                </Button>
++              )}
++
++              <p
++                className={`text-[0.875rem] font-medium transition-all duration-300 ${
++                  isAnimating ? "text-primary text-[1rem] font-semibold" : "text-muted-foreground"
++                }`}
++              >
++                {revivesLeft > 0
++                  ? `Only ${revivesLeft} revives left this month`
++                  : "0 revives left this month"}
++              </p>
++            </div>
++          </div>
++        )}
++
++        {step === "revived" && (
++          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
++            <DialogHeader className="space-y-1.5 text-center">
++              <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
++                Streak Revived!
++              </DialogTitle>
++              <DialogDescription className="text-[0.9375rem] text-muted-foreground">
++                Your {brokenInfo.previousStreak}-day progress picture streak continues.
++              </DialogDescription>
++            </DialogHeader>
++
++            {/* Glowing Red Fire Icon with Badge */}
++            <div className="flex justify-center py-2">
++              <div className="relative inline-flex items-center justify-center p-4">
++                <span className="absolute -top-1 -left-1 flex h-8 min-w-8 items-center justify-center rounded-full border border-[#E50910]/40 bg-[#E50910]/20 px-2 text-xs font-bold tabular-nums text-[#E50910] shadow-sm">
++                  {brokenInfo.previousStreak}
++                </span>
++
++                <div className="flex h-24 w-24 items-center justify-center rounded-2xl border border-[#E50910]/40 bg-[#E50910]/10 shadow-[0_0_24px_rgba(229,9,16,0.25)]">
++                  <Flame className="h-14 w-14 fill-[#E50910] text-[#E50910] animate-pulse" strokeWidth={1.5} />
++                </div>
++              </div>
++            </div>
++
++            <div className="space-y-3 pt-1">
++              <p className="text-[0.875rem] font-medium text-muted-foreground">
++                Only {revivesLeft} {revivesLeft === 1 ? "revive" : "revives"} left this month
++              </p>
++              <Button
++                type="button"
++                onClick={handleClose}
++                className="min-h-12 w-full rounded-xl bg-primary text-[1rem] font-semibold text-primary-foreground hover:bg-primary/90"
++              >
++                <Check className="mr-2 h-5 w-5" />
++                Continue to Dashboard
++              </Button>
++            </div>
++          </div>
++        )}
++
++        {step === "zero_prompt" && (
++          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
++            <DialogHeader className="space-y-2 text-center">
++              <DialogTitle className="text-lg font-bold text-foreground">
++                Streak Revives
++              </DialogTitle>
++            </DialogHeader>
++
++            <div className="rounded-xl border border-border bg-black/40 p-5">
++              <p className="text-[1.0625rem] font-medium leading-relaxed text-foreground">
++                You ran out of streak revives for this month, but....
++              </p>
++            </div>
++
++            <Button
++              type="button"
++              onClick={() => setStep("hal_message")}
++              className="min-h-12 w-full rounded-xl bg-primary text-[1rem] font-semibold text-primary-foreground hover:bg-primary/90"
++            >
++              But?
++            </Button>
++          </div>
++        )}
++
++        {step === "hal_message" && (
++          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
++            <DialogHeader className="space-y-2 text-center">
++              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
++                <HeartHandshake className="h-6 w-6" />
++              </div>
++              <DialogTitle className="text-lg font-bold text-foreground">
++                From Your Coach
++              </DialogTitle>
++            </DialogHeader>
++
++            <div className="rounded-xl border border-primary/30 bg-[#141414] p-5 text-left shadow-sm">
++              <p className="text-[1.0625rem] italic leading-relaxed text-white/90">
++                &ldquo;streaks are not everything. Your consistency over time is all that matters.
++                Best wishes.&rdquo;
++              </p>
++              <div className="mt-4 text-right">
++                <span className="text-[1rem] font-bold tracking-wide text-primary">— Hal</span>
++              </div>
++            </div>
++
++            <Button
++              type="button"
++              onClick={handleClose}
++              className="min-h-12 w-full rounded-xl bg-primary text-[1rem] font-semibold text-primary-foreground hover:bg-primary/90"
++            >
++              Got it, Hal
++            </Button>
++          </div>
++        )}
++      </DialogContent>
++    </Dialog>
++  );
++}
+diff --git a/src/lib/progress-pictures.ts b/src/lib/progress-pictures.ts
+index ae98f91..4383de2 100644
+--- a/src/lib/progress-pictures.ts
++++ b/src/lib/progress-pictures.ts
+@@ -27,6 +27,9 @@ export type ProgressPictureMonthGroup = {
+ export const PROGRESS_PICTURE_VIEW_STORAGE_KEY = "no-more-copium:client-progress-picture-view:v1";
+ export const PROGRESS_PICTURE_HABIT_DAYS = 7;
+ export const EMPTY_PROGRESS_PICTURE_BATCHES: ProgressPictureBatch[] = [];
++export const DEFAULT_MONTHLY_REVIVES = 4;
++export const STREAK_REVIVES_STORAGE_KEY = "no-more-copium:streak-revives:v1";
++export const STREAK_DISMISSED_STORAGE_KEY = "no-more-copium:streak-dismissed:v1";
+ 
+ export function sortProgressPictureBatches(
+   batches: readonly ProgressPictureBatch[],
+@@ -147,7 +150,6 @@ export function calculateProgressPictureConsistency(
+     };
+   }
+ 
+-  // Generate date array for the last 7 calendar days (from referenceDate - 6 days to referenceDate)
+   const days: string[] = [];
+   for (let i = 6; i >= 0; i--) {
+     const d = new Date(referenceDate);
+@@ -155,7 +157,6 @@ export function calculateProgressPictureConsistency(
+     days.push(localProgressPictureDate(d));
+   }
+ 
+-  // Calculate level curve across the 7 days
+   let runningLevel = 0;
+   const points: ConsistencyPoint[] = [];
+ 
+@@ -167,7 +168,6 @@ export function calculateProgressPictureConsistency(
+     } else {
+       runningLevel = Math.max(0, runningLevel - 1);
+     }
+-    // On the very first upload day in history, guarantee level is at least 1
+     if (i === days.length - 1 && hasUploadedAny && runningLevel === 0) {
+       runningLevel = 1;
+     }
+@@ -178,12 +178,10 @@ export function calculateProgressPictureConsistency(
+     });
+   }
+ 
+-  // Calculate consecutive streak days counting backwards from today/yesterday
+   let streakDays = 0;
+   const todayStr = localProgressPictureDate(referenceDate);
+   const checkDate = new Date(referenceDate);
+ 
+-  // If today has no upload, start check from yesterday
+   if (!uniqueDates.has(todayStr)) {
+     checkDate.setDate(checkDate.getDate() - 1);
+   }
+@@ -198,7 +196,6 @@ export function calculateProgressPictureConsistency(
+     }
+   }
+ 
+-  // Fallback: If has uploaded any, streak is at least 1 if uploaded recently
+   if (streakDays === 0 && hasUploadedAny) {
+     streakDays = Math.min(uniqueDates.size, 1);
+   }
+@@ -214,3 +211,111 @@ export function calculateProgressPictureConsistency(
+     points,
+   };
+ }
++
++export type MonthlyRevivesState = {
++  monthKey: string;
++  revivesLeft: number;
++};
++
++export function readStreakRevives(clientId: string): number {
++  if (typeof window === "undefined") return DEFAULT_MONTHLY_REVIVES;
++  const currentMonth = localProgressPictureDate().slice(0, 7);
++  try {
++    const raw = window.localStorage.getItem(`${STREAK_REVIVES_STORAGE_KEY}:${clientId}`);
++    if (!raw) return DEFAULT_MONTHLY_REVIVES;
++    const parsed = JSON.parse(raw) as MonthlyRevivesState;
++    if (parsed.monthKey !== currentMonth) {
++      storeStreakRevives(clientId, DEFAULT_MONTHLY_REVIVES);
++      return DEFAULT_MONTHLY_REVIVES;
++    }
++    return typeof parsed.revivesLeft === "number" ? parsed.revivesLeft : DEFAULT_MONTHLY_REVIVES;
++  } catch {
++    return DEFAULT_MONTHLY_REVIVES;
++  }
++}
++
++export function storeStreakRevives(clientId: string, count: number): void {
++  if (typeof window === "undefined") return;
++  const currentMonth = localProgressPictureDate().slice(0, 7);
++  try {
++    const state: MonthlyRevivesState = {
++      monthKey: currentMonth,
++      revivesLeft: Math.max(0, count),
++    };
++    window.localStorage.setItem(`${STREAK_REVIVES_STORAGE_KEY}:${clientId}`, JSON.stringify(state));
++  } catch (err) {
++    console.error("Could not store streak revives", err);
++  }
++}
++
++export function decrementStreakRevives(clientId: string): number {
++  const current = readStreakRevives(clientId);
++  const next = Math.max(0, current - 1);
++  storeStreakRevives(clientId, next);
++  return next;
++}
++
++export function isBrokenStreakDismissed(clientId: string, eventId: string): boolean {
++  if (typeof window === "undefined") return false;
++  return window.localStorage.getItem(`${STREAK_DISMISSED_STORAGE_KEY}:${clientId}:${eventId}`) === "dismissed";
++}
++
++export function dismissBrokenStreakNotice(clientId: string, eventId: string): void {
++  if (typeof window === "undefined") return;
++  window.localStorage.setItem(`${STREAK_DISMISSED_STORAGE_KEY}:${clientId}:${eventId}`, "dismissed");
++}
++
++export type BrokenStreakCheck = {
++  isBroken: boolean;
++  previousStreak: number;
++  eventId: string;
++};
++
++/**
++ * Detects if a client had an established streak, missed the daily window, and opens the app today.
++ */
++export function checkBrokenStreak(
++  batches: readonly ProgressPictureBatch[],
++  clientId: string,
++  referenceDate = new Date(),
++): BrokenStreakCheck {
++  const uniqueDates = new Set(
++    batches
++      .map((batch) => batch.captureDate)
++      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
++  );
++
++  const todayStr = localProgressPictureDate(referenceDate);
++  const yesterday = new Date(referenceDate);
++  yesterday.setDate(yesterday.getDate() - 1);
++  const yesterdayStr = localProgressPictureDate(yesterday);
++
++  if (uniqueDates.has(yesterdayStr) || uniqueDates.has(todayStr)) {
++    return { isBroken: false, previousStreak: 0, eventId: "" };
++  }
++
++  const dayBeforeYesterday = new Date(yesterday);
++  dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 1);
++
++  let prevStreak = 0;
++  const cursor = new Date(dayBeforeYesterday);
++  for (let i = 0; i < 365; i++) {
++    const dStr = localProgressPictureDate(cursor);
++    if (uniqueDates.has(dStr)) {
++      prevStreak++;
++      cursor.setDate(cursor.getDate() - 1);
++    } else {
++      break;
++    }
++  }
++
++  if (prevStreak >= 1) {
++    const eventId = `broken-${yesterdayStr}-${prevStreak}`;
++    const dismissed = isBrokenStreakDismissed(clientId, eventId);
++    if (!dismissed) {
++      return { isBroken: true, previousStreak: prevStreak, eventId };
++    }
++  }
++
++  return { isBroken: false, previousStreak: 0, eventId: "" };
++}

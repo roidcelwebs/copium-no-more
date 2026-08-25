@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useAccount } from "@/components/account/AccountProvider";
 import { ProgressPicturesDashboardSection } from "@/components/client/progress-pictures/ProgressPicturesDashboardSection";
+import { StreakBrokenModal } from "@/components/client/progress-pictures/StreakBrokenModal";
+import { checkBrokenStreak } from "@/lib/progress-pictures";
 import { useChat } from "@/components/chat/ChatProvider";
 import {
   type DayAssignment,
@@ -38,9 +40,17 @@ export function ClientDashboard() {
   const [hydrated, setHydrated] = useState(false);
   const [todayWorkoutIds, setTodayWorkoutIds] = useState<string[]>([]);
   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
+  const [resolvedStreakEventId, setResolvedStreakEventId] = useState<string | null>(null);
   const progressPictures = useProgressPictureBatches(
     client?.role === "client" ? client.id : undefined,
   );
+
+  const brokenStreakInfo = useMemo(() => {
+    if (!client || client.role !== "client") {
+      return { isBroken: false, previousStreak: 0, eventId: "" };
+    }
+    return checkBrokenStreak(progressPictures.batches, client.id, now);
+  }, [client, progressPictures.batches, now]);
 
   useEffect(() => {
     const loadCachedCoachData = () => {
@@ -264,6 +274,17 @@ export function ClientDashboard() {
         onRetry={() => void progressPictures.refresh()}
         onUploaded={progressPictures.refresh}
       />
+
+      {brokenStreakInfo.isBroken && resolvedStreakEventId !== brokenStreakInfo.eventId && client && (
+        <StreakBrokenModal
+          clientId={client.id}
+          brokenInfo={brokenStreakInfo}
+          onResolved={() => {
+            setResolvedStreakEventId(brokenStreakInfo.eventId);
+            void progressPictures.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
