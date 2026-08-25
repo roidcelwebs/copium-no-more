@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { LogOut, Settings } from "lucide-react";
+import { LogOut, Settings, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,10 +17,15 @@ export function SettingsMenu() {
   const navigate = useNavigate();
   const { account, signOut } = useAccount();
 
+  const switchAccount = () => {
+    setOpen(false);
+    void navigate({ to: "/access", replace: true });
+  };
+
   const leaveAccount = async () => {
     await signOut();
     setOpen(false);
-    void navigate({ to: "/", replace: true });
+    void navigate({ to: "/access", replace: true });
   };
 
   return (
@@ -32,22 +37,36 @@ export function SettingsMenu() {
       </DialogTrigger>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
+          <DialogTitle>Settings & Account</DialogTitle>
           {account && (
             <DialogDescription>
               {account.name} · @{account.username}
-              {account.role === "coach" ? " · Coach" : " · Client"}
+              {account.role === "coach"
+                ? " · Coach"
+                : account.role === "payment_manager"
+                  ? " · Payment Manager"
+                  : " · Client"}
             </DialogDescription>
           )}
         </DialogHeader>
-        <Button
-          variant="outline"
-          className="w-full justify-start"
-          onClick={() => void leaveAccount()}
-        >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-          Sign out
-        </Button>
+        <div className="space-y-2 pt-2">
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2"
+            onClick={switchAccount}
+          >
+            <Users className="h-4 w-4" aria-hidden="true" />
+            Switch account / role
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2 text-destructive hover:bg-destructive/10"
+            onClick={() => void leaveAccount()}
+          >
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+            Sign out
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

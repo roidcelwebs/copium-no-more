@@ -1,5 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
-import { supabaseLoose } from "./supabase-loose-client";
+import { LOCAL_CHAT_CHANGED_EVENT, emitLocalEvent } from "./local-events";
 
 export type AccountRole = "coach" | "client" | "payment_manager";
 
@@ -22,11 +21,67 @@ export const USERNAME_PATTERN = /^[a-z0-9_]+$/;
 export const USERNAME_MIN_LENGTH = 3;
 export const USERNAME_MAX_LENGTH = 30;
 
+export const DEFAULT_PROTOTYPE_ACCOUNTS: AppAccount[] = [
+  {
+    id: "coach-hal",
+    name: "Hal",
+    username: "coach",
+    role: "coach",
+    isPreview: true,
+    onboardingStep: 0,
+    approvedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "client-bobby",
+    name: "Bobby",
+    username: "bobby_07",
+    role: "client",
+    isPreview: true,
+    onboardingStep: 5,
+    onboardingCompletedAt: new Date().toISOString(),
+    approvedAt: new Date().toISOString(),
+    assignedProgramId: "sample-program-1",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "client-marcus",
+    name: "Marcus",
+    username: "marcus_fit",
+    role: "client",
+    isPreview: true,
+    onboardingStep: 5,
+    onboardingCompletedAt: new Date().toISOString(),
+    approvedAt: new Date().toISOString(),
+    assignedProgramId: "sample-program-1",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "client-dylan",
+    name: "Dylan",
+    username: "dylan_lift",
+    role: "client",
+    isPreview: true,
+    onboardingStep: 1,
+    approvedAt: undefined,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "pm-jakub",
+    name: "Jakub",
+    username: "jakub_pm",
+    role: "payment_manager",
+    isPreview: true,
+    onboardingStep: 0,
+    approvedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  },
+];
+
 export function normalizeUsername(value: string): string {
   return value.trim();
 }
 
-/** Case-insensitive key used for uniqueness and matching. */
 export function usernameKey(value: string): string {
   return normalizeUsername(value).toLowerCase();
 }
@@ -42,73 +97,58 @@ export function validateUsername(value: string): string | null {
   return null;
 }
 
-function mapRow(row: Record<string, unknown>): AppAccount {
-  return {
-    id: String(row.id),
-    name: String(row.name ?? ""),
-    username: String(row.username ?? ""),
-    role: (row.role as AccountRole) ?? "client",
-    isPreview: Boolean(row.is_preview),
-    onboardingStep:
-      typeof row.onboarding_step === "number" ? row.onboarding_step : 0,
-    onboardingCompletedAt:
-      typeof row.onboarding_completed_at === "string"
-        ? row.onboarding_completed_at
-        : undefined,
-    approvedAt:
-      typeof row.approved_at === "string" ? row.approved_at : undefined,
-    assignedProgramId:
-      typeof row.assigned_program_id === "string" ? row.assigned_program_id : undefined,
-    createdAt: String(row.created_at ?? new Date().toISOString()),
-  };
+export function readLocalAccounts(): AppAccount[] {
+  if (typeof window === "undefined") return DEFAULT_PROTOTYPE_ACCOUNTS;
+  try {
+    const raw = window.localStorage.getItem(LOCAL_ACCOUNTS_STORAGE_KEY);
+    if (!raw) {
+      writeLocalAccounts(DEFAULT_PROTOTYPE_ACCOUNTS);
+      return DEFAULT_PROTOTYPE_ACCOUNTS;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      writeLocalAccounts(DEFAULT_PROTOTYPE_ACCOUNTS);
+      return DEFAULT_PROTOTYPE_ACCOUNTS;
+    }
+    return parsed as AppAccount[];
+  } catch {
+    return DEFAULT_PROTOTYPE_ACCOUNTS;
+  }
 }
 
-/** Full account row for the current session (after bootstrap). */
+export function writeLocalAccounts(accounts: AppAccount[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LOCAL_ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
+    emitLocalEvent(LOCAL_CHAT_CHANGED_EVENT);
+  } catch (error) {
+    console.error("Could not write local accounts", error);
+  }
+}
+
+export function resetLocalAccounts(): AppAccount[] {
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(LOCAL_ACCOUNTS_STORAGE_KEY);
+    window.localStorage.removeItem(ACTIVE_ACCOUNT_STORAGE_KEY);
+  }
+  writeLocalAccounts(DEFAULT_PROTOTYPE_ACCOUNTS);
+  return DEFAULT_PROTOTYPE_ACCOUNTS;
+}
+
 export async function fetchAccount(accountId: string): Promise<AppAccount | null> {
-  const { data, error } = await supabaseLoose
-    .from("app_accounts")
-    .select(
-      "id, name, username, role, is_preview, onboarding_step, onboarding_completed_at, approved_at, assigned_program_id, created_at",
-    )
-    .eq("id", accountId)
-    .maybeSingle();
-  if (error || !data) return null;
-  return mapRow(data as Record<string, unknown>);
+  const accounts = readLocalAccounts();
+  return accounts.find((acc) => acc.id === accountId) ?? null;
 }
 
 export async function fetchAccounts(): Promise<AppAccount[]> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session) return [];
-  const { data: rows, error } = await supabaseLoose
-    .from("app_accounts")
-    .select(
-      "id, name, username, role, is_preview, onboarding_step, onboarding_completed_at, approved_at, assigned_program_id, created_at",
-    )
-    .eq("is_preview", false)
-    .order("created_at", { ascending: true });
-  if (error || !rows) return [];
-  return rows.map((row) => mapRow(row as Record<string, unknown>));
+  return readLocalAccounts();
 }
 
 export async function fetchPublicCoachAccount(): Promise<AppAccount | null> {
-  const { data, error } = await supabaseLoose
-    .from("app_accounts")
-    .select(
-      "id, name, username, role, is_preview, onboarding_step, onboarding_completed_at, approved_at, assigned_program_id, created_at",
-    )
-    .eq("role", "coach")
-    .eq("is_preview", false)
-    .limit(1)
-    .maybeSingle();
-  if (error || !data) return null;
-  return mapRow(data as Record<string, unknown>);
+  const accounts = readLocalAccounts();
+  return accounts.find((acc) => acc.role === "coach") ?? DEFAULT_PROTOTYPE_ACCOUNTS[0];
 }
 
-/**
- * Thrown when the signed-in identity has no app_accounts row yet.
- * The UI shows "No account has been created with this Google account" and
- * offers the access-code creation flow.
- */
 export class NoAccountError extends Error {
   readonly code = "no_account";
   constructor(
@@ -119,54 +159,43 @@ export class NoAccountError extends Error {
   }
 }
 
-/**
- * Loads the app account linked to the current session via the
- * account-bootstrap edge function (session lookup only — account creation
- * happens in create-client-account / coach-login).
- * Throws NoAccountError when the identity has no account yet.
- */
 export async function bootstrapAccount(): Promise<AppAccount> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session) {
-    throw new Error("Sign in first.");
+  const activeId = readActiveAccountId();
+  const accounts = readLocalAccounts();
+  if (activeId) {
+    const found = accounts.find((acc) => acc.id === activeId);
+    if (found) return found;
   }
-  const { data, error } = await supabase.functions.invoke("account-bootstrap", {
-    body: {},
-  });
-  if (error) {
-    const context = (error.context ?? {}) as { code?: string; error?: string; message?: string };
-    if (context.code === "no_account") {
-      throw new NoAccountError(context.error ?? context.message);
-    }
-    const message =
-      context.error ??
-      context.message ??
-      "Account could not be loaded. What happened: bootstrap failed. Why: the session may be incomplete. What to do: sign out and sign in again.";
-    throw new Error(message);
-  }
-  if (!data?.ok || !data?.account?.id) {
-    if (data?.code === "no_account") throw new NoAccountError();
-    const message =
-      typeof data?.error === "string"
-        ? data.error
-        : "Account could not be loaded. What happened: bootstrap failed. Why: the session may be incomplete. What to do: sign out and sign in again.";
-    throw new Error(message);
-  }
-  // Bootstrap returns the row without onboarding fields — fetch the full row.
-  const full = await fetchAccount(String(data.account.id));
-  if (!full) throw new Error("Account was created but could not be loaded.");
-  return full;
+  // Default to coach if none active
+  const coach = accounts.find((acc) => acc.role === "coach") ?? accounts[0];
+  storeActiveAccountId(coach.id);
+  return coach;
 }
 
-/** Legacy local creation is gone — cloud accounts come from Google. */
-export async function createAccount(_input: {
+export async function createAccount(input: {
   name: string;
   username: string;
   role: AccountRole;
 }): Promise<AppAccount> {
-  throw new Error(
-    "Accounts are created with Google sign-in now. Use Continue with Google.",
-  );
+  const accounts = readLocalAccounts();
+  const normUser = normalizeUsername(input.username).toLowerCase();
+  if (accounts.some((acc) => acc.username.toLowerCase() === normUser)) {
+    throw new Error("That username is already taken. Please pick another.");
+  }
+  const newAccount: AppAccount = {
+    id: `local-${input.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    name: input.name.trim() || "Lifter",
+    username: normUser || `lifter_${Date.now().toString().slice(-4)}`,
+    role: input.role,
+    isPreview: true,
+    onboardingStep: input.role === "client" ? 1 : 0,
+    approvedAt: input.role === "coach" || input.role === "payment_manager" ? new Date().toISOString() : undefined,
+    createdAt: new Date().toISOString(),
+  };
+  const nextList = [...accounts, newAccount];
+  writeLocalAccounts(nextList);
+  storeActiveAccountId(newAccount.id);
+  return newAccount;
 }
 
 export async function updateCloudClientAssignment(
@@ -181,34 +210,23 @@ export async function updateLocalAccount(
   updates: Partial<
     Pick<
       AppAccount,
-      "onboardingStep" | "onboardingCompletedAt" | "assignedProgramId"
+      "onboardingStep" | "onboardingCompletedAt" | "approvedAt" | "assignedProgramId" | "name"
     >
   >,
 ): Promise<AppAccount> {
-  const payload: {
-    onboarding_step?: number;
-    onboarding_completed_at?: string | null;
-    assigned_program_id?: string | null;
-  } = {};
-  if (updates.onboardingStep !== undefined) payload.onboarding_step = updates.onboardingStep;
-  if (updates.onboardingCompletedAt !== undefined) {
-    payload.onboarding_completed_at = updates.onboardingCompletedAt;
+  const accounts = readLocalAccounts();
+  const index = accounts.findIndex((acc) => acc.id === accountId);
+  if (index === -1) {
+    throw new Error("Account not found.");
   }
-  if (updates.assignedProgramId !== undefined) {
-    payload.assigned_program_id = updates.assignedProgramId;
-  }
-  const { data, error } = await supabaseLoose
-    .from("app_accounts")
-    .update(payload)
-    .eq("id", accountId)
-    .select(
-      "id, name, username, role, is_preview, onboarding_step, onboarding_completed_at, approved_at, assigned_program_id, created_at",
-    )
-    .maybeSingle();
-  if (error || !data) {
-    throw new Error("Account could not be updated on the cloud.");
-  }
-  return mapRow(data as Record<string, unknown>);
+  const current = accounts[index];
+  const updated: AppAccount = {
+    ...current,
+    ...updates,
+  };
+  accounts[index] = updated;
+  writeLocalAccounts(accounts);
+  return updated;
 }
 
 export function readActiveAccountId(): string | null {

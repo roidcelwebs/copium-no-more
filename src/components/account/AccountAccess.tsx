@@ -1,568 +1,242 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { AlertCircle, ArrowLeft, KeyRound } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  ShieldCheck,
+  User,
+  Plus,
+  RotateCcw,
+  CreditCard,
+  CheckCircle2,
+  Clock,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
-import {
-  type AppAccount,
-  NoAccountError,
-  bootstrapAccount,
-  normalizeUsername,
-  validateUsername,
-} from "@/lib/cloud-accounts";
-import {
-  clearAccessTicket,
-  formatAccessCode,
-  isValidAccessCodeFormat,
-  normalizeAccessCode,
-  readAccessTicket,
-  redeemAccessCode,
-  storeAccessTicket,
-  validateName,
-} from "@/lib/access-codes";
+import { Badge } from "@/components/ui/badge";
+import { type AppAccount } from "@/lib/cloud-accounts";
 import { useAccount } from "./AccountProvider";
-import { GoogleSignInButton } from "./GoogleSignInButton";
-
-type Phase = "loading" | "entry" | "details" | "coach" | "error";
 
 function enterRouteFor(account: AppAccount): string {
   if (account.role === "coach") return "/coach/dashboard";
+  if (account.role === "payment_manager") return "/payment/dashboard";
   if (account.approvedAt) return "/client/dashboard";
   return "/onboarding";
 }
 
 export function AccountAccess() {
   const navigate = useNavigate();
-  const { login, loginCoach, completeAccessCodeAccount, configured, signInWithGoogle } =
-    useAccount();
+  const { account, accounts, login, createLocalClient, resetToDefaults } = useAccount();
 
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [error, setError] = useState<string | null>(null);
-  const [noAccountError, setNoAccountError] = useState<string | null>(null);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  // Code (Create account) dialog
-  const [codeModalOpen, setCodeModalOpen] = useState(false);
-  const [code, setCode] = useState("");
-  const [codeBusy, setCodeBusy] = useState(false);
-  const [codeError, setCodeError] = useState<string | null>(null);
+  const handleSelectAccount = (acc: AppAccount) => {
+    login(acc);
+    void navigate({ to: enterRouteFor(acc) as never });
+  };
 
-  // Post-Google name + username
-  const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
-  const [nameTouched, setNameTouched] = useState(false);
-  const [usernameTouched, setUsernameTouched] = useState(false);
-  const [detailsBusy, setDetailsBusy] = useState(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
-  const [usernameServerError, setUsernameServerError] = useState<string | null>(null);
-
-  // Coach password
-  const [coachPassword, setCoachPassword] = useState("");
-  const [coachBusy, setCoachBusy] = useState(false);
-  const [coachError, setCoachError] = useState<string | null>(null);
-
-  /**
-   * Runs after a session exists: routes existing accounts, or drives the
-   * post-Google creation flow when a ticket (burned code) is pending.
-   */
-  const continueWithSession = useCallback(async (): Promise<void> => {
+  const handleCreateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientName.trim()) return;
+    setBusy(true);
     try {
-      const account = await bootstrapAccount();
-      if (account) {
-        const ticket = readAccessTicket();
-        if (ticket) {
-          // Identity already has an account (e.g. re-login) — burn the ticket
-          // server-side so the code can never be reused.
-          try {
-            await completeAccessCodeAccount(account.name, account.username, ticket);
-          } catch {
-            // best-effort; the code is burned lazily by the edge function
-          }
-          clearAccessTicket();
-        }
-        login(account);
-        void navigate({ to: enterRouteFor(account) as never });
-        return;
-      }
-      setPhase("entry");
-    } catch (nextError) {
-      if (nextError instanceof NoAccountError) {
-        const ticket = readAccessTicket();
-        if (ticket) {
-          setPhase("details");
-        } else {
-          setNoAccountError(
-            "No account has been created with this Google account. Create an account first.",
-          );
-          setPhase("entry");
-        }
-        return;
-      }
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Your account could not be loaded. What happened: sign-in check failed. Why: the session may be incomplete. What to do: refresh the page and try again.",
-      );
-      setPhase("error");
-    }
-  }, [completeAccessCodeAccount, login, navigate]);
-
-  useEffect(() => {
-    if (!configured) {
-      setPhase("error");
-      setError(
-        "Cloud is not connected. What happened: Supabase environment variables are missing. Why: Lovable Cloud is not enabled for this project. What to do: enable Lovable Cloud and rebuild.",
-      );
-      return;
-    }
-    void (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
-        setPhase("entry");
-        return;
-      }
-      await continueWithSession();
-    })();
-  }, [configured, continueWithSession]);
-
-  const submitCode = async () => {
-    if (codeBusy) return;
-    setCodeError(null);
-    const normalized = normalizeAccessCode(code);
-    if (!isValidAccessCodeFormat(normalized)) {
-      setCodeError("Enter the 12-character access code your coach sent you.");
-      return;
-    }
-    setCodeBusy(true);
-    try {
-      const { ticket, expiresInSeconds } = await redeemAccessCode(normalized);
-      storeAccessTicket(ticket, expiresInSeconds);
-      setCodeModalOpen(false);
-      setCode("");
-      setNoAccountError(null);
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (sessionData.session) {
-        await continueWithSession();
-      } else {
-        await signInWithGoogle(); // redirects to Google; ticket stays in sessionStorage
-      }
-    } catch (nextError) {
-      setCodeError(
-        nextError instanceof Error
-          ? nextError.message
-          : "That code could not be checked. What happened: the code check failed. Why: the cloud may be busy. What to do: try again in a moment.",
-      );
+      const created = await createLocalClient(newClientName.trim());
+      setCreatingClient(false);
+      setNewClientName("");
+      void navigate({ to: enterRouteFor(created) as never });
     } finally {
-      setCodeBusy(false);
+      setBusy(false);
     }
   };
 
-  const nameError = nameTouched ? validateName(name) : null;
-  const usernameError =
-    usernameTouched ? (usernameServerError ?? validateUsername(username)) : null;
-
-  const submitDetails = async () => {
-    setNameTouched(true);
-    setUsernameTouched(true);
-    const nErr = validateName(name);
-    const uErr = validateUsername(username);
-    if (nErr || uErr) {
-      setDetailsError(nErr ?? uErr ?? null);
-      return;
-    }
-    const ticket = readAccessTicket();
-    if (!ticket) {
-      setDetailsError(
-        "Your sign-up link has expired. What happened: the one-time link from your access code ran out after 30 minutes. Why: account creation must finish in one sitting. What to do: enter a new access code from your coach.",
-      );
-      setCodeModalOpen(true);
-      return;
-    }
-    setDetailsBusy(true);
-    setDetailsError(null);
-    try {
-      const account = await completeAccessCodeAccount(
-        name.trim().replace(/\s+/g, " "),
-        normalizeUsername(username),
-        ticket,
-      );
-      clearAccessTicket();
-      void navigate({ to: enterRouteFor(account) as never });
-    } catch (nextError) {
-      const message =
-        nextError instanceof Error
-          ? nextError.message
-          : "Your account could not be created. What happened: creation failed. Why: the cloud may be busy. What to do: try again in a moment.";
-      if (/username/i.test(message)) {
-        setUsernameServerError(message);
-        setDetailsError(null);
-      } else if (/expired|link/i.test(message)) {
-        clearAccessTicket();
-        setDetailsError(message);
-      } else {
-        setDetailsError(message);
-      }
-    } finally {
-      setDetailsBusy(false);
-    }
+  const coachAccount = accounts.find((a) => a.role === "coach") ?? {
+    id: "coach-hal",
+    name: "Hal",
+    username: "coach",
+    role: "coach" as const,
+    isPreview: true,
+    onboardingStep: 0,
+    approvedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   };
 
-  const submitCoach = async () => {
-    if (coachBusy || !coachPassword.trim()) return;
-    setCoachBusy(true);
-    setCoachError(null);
-    try {
-      await loginCoach(coachPassword);
-      void navigate({ to: "/coach/dashboard" });
-    } catch (nextError) {
-      setCoachError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Coach sign-in failed. What happened: the password was not accepted. Why: it may be typed incorrectly. What to do: check the coach master password and try again.",
-      );
-    } finally {
-      setCoachBusy(false);
-    }
-  };
-
-  const switchGoogleAccount = async () => {
-    setNoAccountError(null);
-    await supabase.auth.signOut();
-    setPhase("entry");
-  };
-
-  if (phase === "loading") {
-    return (
-      <div className="space-y-3" aria-label="Loading your account">
-        <div className="h-12 w-full rounded-xl bg-muted/60 skeleton-shimmer" />
-        <div className="h-14 w-full rounded-xl bg-muted/60 skeleton-shimmer" />
-        <div className="h-10 w-full rounded-xl bg-muted/60 skeleton-shimmer" />
-      </div>
-    );
-  }
-
-  if (phase === "entry") {
-    return (
-      <div className="space-y-4">
-        {noAccountError && (
-          <div className="space-y-3">
-            <div
-              className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-[1rem] leading-5 text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-              <p className="min-w-0 flex-1 break-words">{noAccountError}</p>
-            </div>
-            <Button
-              type="button"
-              onClick={() => setCodeModalOpen(true)}
-              className="min-h-12 w-full rounded-xl text-[1rem] font-semibold"
-            >
-              Create an account
-            </Button>
-          </div>
-        )}
-
-        <GoogleSignInButton />
-
-        <div className="flex items-center gap-3" aria-hidden="true">
-          <span className="h-px flex-1 bg-border" />
-          <span className="text-[0.8125rem] uppercase tracking-wide text-muted-foreground">or</span>
-          <span className="h-px flex-1 bg-border" />
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => setCodeModalOpen(true)}
-          className="min-h-12 w-full rounded-xl text-[1rem] font-semibold border-border hover:bg-muted/40"
-        >
-          <KeyRound className="mr-2 h-5 w-5" aria-hidden="true" />
-          Create account
-        </Button>
-
-        <p className="text-center text-[0.875rem] leading-5 text-muted-foreground">
-          Already have an account? Sign in with the same Google account you used
-          when you joined.
-        </p>
-
-        <button
-          type="button"
-          onClick={() => setPhase("coach")}
-          className="mx-auto block text-[0.875rem] font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Coach? Sign in with your account password
-        </button>
-
-        <CodeEntryDialog
-          open={codeModalOpen}
-          onOpenChange={setCodeModalOpen}
-          code={code}
-          setCode={setCode}
-          busy={codeBusy}
-          error={codeError}
-          onSubmit={() => void submitCode()}
-        />
-      </div>
-    );
-  }
-
-  if (phase === "details") {
-    return (
-      <form onSubmit={(event) => { event.preventDefault(); void submitDetails(); }} className="space-y-5" noValidate>
-        <div className="space-y-1.5 text-left">
-          <Label htmlFor="access-account-name">Your name</Label>
-          <Input
-            id="access-account-name"
-            value={name}
-            onChange={(event) => { setName(event.target.value); setDetailsError(null); }}
-            onBlur={() => setNameTouched(true)}
-            maxLength={80}
-            placeholder="Your name"
-            autoFocus
-            aria-invalid={!!nameError}
-            aria-describedby={nameError ? "access-name-error access-name-count" : "access-name-count"}
-            aria-required="true"
-          />
-          <div className="flex items-center justify-between gap-2">
-            {nameError ? (
-              <p id="access-name-error" className="flex items-start gap-1.5 text-[1rem] leading-5 text-destructive">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{nameError}</span>
-              </p>
-            ) : null}
-            <span id="access-name-count" className="ml-auto shrink-0 text-[0.8125rem] tabular-nums text-muted-foreground" aria-live="polite">
-              {name.length}/80
-            </span>
-          </div>
-        </div>
-        <div className="space-y-1.5 text-left">
-          <Label htmlFor="access-account-username">Your username</Label>
-          <Input
-            id="access-account-username"
-            value={username}
-            onChange={(event) => { setUsername(event.target.value); setUsernameServerError(null); setDetailsError(null); }}
-            onBlur={() => setUsernameTouched(true)}
-            placeholder="Your username"
-            maxLength={30}
-            autoComplete="off"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            aria-invalid={!!usernameError}
-            aria-describedby={usernameError ? "access-username-error access-username-hint access-username-count" : "access-username-hint access-username-count"}
-            aria-required="true"
-          />
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              {usernameError ? (
-                <p id="access-username-error" className="flex items-start gap-1.5 text-[1rem] leading-5 text-destructive">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                  <span>{usernameError}</span>
-                </p>
-              ) : (
-                <p id="access-username-hint" className="text-[1rem] leading-5 text-muted-foreground">
-                  3–30 lowercase letters (a–z), numbers, and underscores. Unique.
-                </p>
-              )}
-            </div>
-            <span id="access-username-count" className="shrink-0 text-[0.8125rem] tabular-nums text-muted-foreground" aria-live="polite">
-              {username.length}/30
-            </span>
-          </div>
-        </div>
-        {detailsError && (
-          <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-[1rem] leading-5 text-destructive" role="alert">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-            <p className="min-w-0 flex-1 break-words">{detailsError}</p>
-          </div>
-        )}
-        <Button
-          type="submit"
-          className="min-h-12 w-full rounded-xl text-[1rem] font-semibold"
-          disabled={detailsBusy}
-        >
-          {detailsBusy ? "Creating account…" : "Create account"}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className="min-h-11 w-full rounded-xl text-[1rem]"
-          disabled={detailsBusy}
-          onClick={() => void switchGoogleAccount()}
-        >
-          Use a different Google account
-        </Button>
-
-        <CodeEntryDialog
-          open={codeModalOpen}
-          onOpenChange={setCodeModalOpen}
-          code={code}
-          setCode={setCode}
-          busy={codeBusy}
-          error={codeError}
-          onSubmit={() => void submitCode()}
-        />
-      </form>
-    );
-  }
-
-  if (phase === "coach") {
-    return (
-      <form onSubmit={(event) => { event.preventDefault(); void submitCoach(); }} className="space-y-5" noValidate>
-        <div className="space-y-1.5 text-left">
-          <Label htmlFor="coach-password">Coach password</Label>
-          <Input
-            id="coach-password"
-            type="password"
-            value={coachPassword}
-            onChange={(event) => setCoachPassword(event.target.value)}
-            placeholder="Coach master password"
-            autoComplete="current-password"
-            autoFocus
-            aria-required="true"
-            aria-describedby={coachError ? "coach-password-error" : undefined}
-            aria-invalid={!!coachError}
-          />
-          {coachError && (
-            <p id="coach-password-error" className="flex items-start gap-1.5 text-[1rem] leading-5 text-destructive">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{coachError}</span>
-            </p>
-          )}
-        </div>
-        <Button
-          type="submit"
-          className="min-h-12 w-full rounded-xl text-[1rem] font-semibold"
-          disabled={coachBusy || !coachPassword.trim()}
-        >
-          {coachBusy ? "Signing in…" : "Sign in as Coach"}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className="min-h-11 w-full rounded-xl text-[1rem]"
-          disabled={coachBusy}
-          onClick={() => { setPhase("entry"); setCoachPassword(""); setCoachError(null); }}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
-          Back to sign in
-        </Button>
-      </form>
-    );
-  }
+  const clientAccounts = accounts.filter((a) => a.role === "client");
+  const paymentAccount = accounts.find((a) => a.role === "payment_manager");
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-[1rem] leading-5 text-destructive" role="alert">
-        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-        <p className="min-w-0 flex-1 break-words">{error}</p>
+    <div className="space-y-6 text-left">
+      {/* Badge Banner */}
+      <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 p-3.5">
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary">
+            Local Prototype Mode
+          </Badge>
+          <span className="text-[0.8125rem] text-muted-foreground">Zero cloud dependencies</span>
+        </div>
+        {account && (
+          <span className="text-[0.75rem] font-medium text-white/60">
+            Active: <strong className="text-white">{account.name}</strong> ({account.role})
+          </span>
+        )}
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        className="min-h-12 w-full rounded-xl text-[1rem]"
-        onClick={() => { setError(null); setPhase("loading"); void (async () => {
-          const { data: sessionData } = await supabase.auth.getSession();
-          if (!sessionData.session) { setPhase("entry"); return; }
-          await continueWithSession();
-        })(); }}
-      >
-        Try again
-      </Button>
+
+      {/* 1. Coach Mode Section */}
+      <div className="space-y-2">
+        <Label className="text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Coach Workspace
+        </Label>
+        <Button
+          type="button"
+          onClick={() => handleSelectAccount(coachAccount)}
+          className="min-h-12 w-full justify-between rounded-xl bg-primary px-4 text-[1rem] font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.98]"
+        >
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck className="h-5 w-5 text-white" aria-hidden="true" />
+            <span>Enter as Coach ({coachAccount.name})</span>
+          </div>
+          <span className="text-xs uppercase tracking-wider text-white/80">Open Dashboard →</span>
+        </Button>
+      </div>
+
+      {/* 2. Client Accounts Section */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Client Accounts (1-Tap Switch)
+          </Label>
+          <button
+            type="button"
+            onClick={() => setCreatingClient((prev) => !prev)}
+            className="flex items-center gap-1 text-[0.8125rem] font-medium text-primary hover:underline"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Add client</span>
+          </button>
+        </div>
+
+        {/* Inline Create Client Form */}
+        {creatingClient && (
+          <form
+            onSubmit={(e) => void handleCreateClient(e)}
+            className="space-y-3 rounded-xl border border-border bg-card p-3.5"
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="new-client-name" className="text-xs">
+                Client Name
+              </Label>
+              <Input
+                id="new-client-name"
+                value={newClientName}
+                onChange={(e) => setNewClientName(e.target.value)}
+                placeholder="e.g. Alex"
+                autoFocus
+                required
+                className="rounded-lg"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setCreatingClient(false)}
+                className="rounded-lg text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={busy || !newClientName.trim()}
+                className="rounded-lg text-xs font-semibold"
+              >
+                {busy ? "Creating..." : "Create & Enter"}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {/* Clients List */}
+        <div className="grid gap-2">
+          {clientAccounts.map((c) => {
+            const isApproved = !!c.approvedAt;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => handleSelectAccount(c)}
+                className="flex min-h-12 w-full items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5 text-left transition-colors hover:border-primary/50 hover:bg-muted/40 active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                    <User className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-[0.9375rem] font-medium text-foreground">
+                      {c.name}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">@{c.username}</p>
+                  </div>
+                </div>
+
+                {isApproved ? (
+                  <Badge
+                    variant="secondary"
+                    className="gap-1 border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-[0.6875rem]"
+                  >
+                    <CheckCircle2 className="h-3 w-3" />
+                    Dashboard
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-400 text-[0.6875rem]"
+                  >
+                    <Clock className="h-3 w-3" />
+                    Onboarding
+                  </Badge>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 3. Payment Manager Section */}
+      {paymentAccount && (
+        <div className="space-y-2">
+          <Label className="text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Payment Manager Mode
+          </Label>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleSelectAccount(paymentAccount)}
+            className="min-h-11 w-full justify-between rounded-xl border-border px-4 text-[0.9375rem] font-medium hover:bg-muted/40"
+          >
+            <div className="flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-muted-foreground" />
+              <span>Enter as Payment Manager ({paymentAccount.name})</span>
+            </div>
+            <span className="text-xs text-muted-foreground">/payment/dashboard</span>
+          </Button>
+        </div>
+      )}
+
+      {/* 4. Prototype Reset Controls */}
+      <div className="pt-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={resetToDefaults}
+          className="w-full justify-center text-xs text-muted-foreground hover:text-foreground"
+        >
+          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+          Reset sample data to defaults
+        </Button>
+      </div>
     </div>
-  );
-}
-
-function CodeEntryDialog({
-  open,
-  onOpenChange,
-  code,
-  setCode,
-  busy,
-  error,
-  onSubmit,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  code: string;
-  setCode: (value: string) => void;
-  busy: boolean;
-  error: string | null;
-  onSubmit: () => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-xl p-6">
-        <DialogHeader>
-          <DialogTitle className="text-[1.25rem] font-semibold tracking-tight text-foreground">
-            Enter your access code
-          </DialogTitle>
-          <DialogDescription className="text-[1rem] leading-6 text-muted-foreground">
-            Your coach sent you a code after your first payment. It works once.
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          onSubmit={(event) => { event.preventDefault(); onSubmit(); }}
-          className="space-y-4"
-          noValidate
-        >
-          <div className="space-y-1.5 text-left">
-            <Label htmlFor="access-code-input">Access code</Label>
-            <Input
-              id="access-code-input"
-              value={code}
-              onChange={(event) => setCode(formatAccessCode(event.target.value).slice(0, 14))}
-              placeholder="XXXX-XXXX-XXXX"
-              autoComplete="off"
-              autoCapitalize="characters"
-              autoCorrect="off"
-              spellCheck={false}
-              disabled={busy}
-              maxLength={14}
-              autoFocus
-              aria-invalid={!!error}
-              aria-describedby={error ? "access-code-error" : "access-code-hint"}
-            />
-            {error ? (
-              <p id="access-code-error" className="flex items-start gap-1.5 text-[1rem] leading-5 text-destructive">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{error}</span>
-              </p>
-            ) : (
-              <p id="access-code-hint" className="text-[1rem] leading-5 text-muted-foreground">
-                Pasting works. The code is checked once and then expires.
-              </p>
-            )}
-          </div>
-          <div className="flex gap-3">
-            <Button
-              type="button"
-              variant="ghost"
-              className="min-h-12 flex-1 rounded-xl text-[1rem]"
-              disabled={busy}
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              className="min-h-12 flex-1 rounded-xl text-[1rem] font-semibold"
-              disabled={busy || !code.trim()}
-            >
-              {busy ? "Checking…" : "Submit code"}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

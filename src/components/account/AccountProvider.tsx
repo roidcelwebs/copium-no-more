@@ -7,14 +7,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { isSupabaseConfigured } from "@/integrations/supabase/config";
 import {
   type AppAccount,
-  NoAccountError,
-  bootstrapAccount,
+  readLocalAccounts,
+  readActiveAccountId,
+  storeActiveAccountId,
+  createAccount,
+  resetLocalAccounts,
 } from "@/lib/cloud-accounts";
-import { createClientAccount, loginCoach as loginCoachRequest } from "@/lib/access-codes";
 import { hydrateCloudCache } from "@/lib/cloud-cache";
 import { hydratePaymentSettings } from "@/lib/payment-settings";
 
@@ -24,14 +24,13 @@ type AccountContextValue = {
   loading: boolean;
   configured: boolean;
   signInWithGoogle: () => Promise<void>;
-  /** Redeem a code is handled by the caller; this links the burned code's
-   *  ticket to a Google identity after sign-up by creating the app account. */
   completeAccessCodeAccount: (name: string, username: string, ticket: string) => Promise<AppAccount>;
-  /** Coach master-password sign-in (replaces the old Google coach identity). */
   loginCoach: (password: string) => Promise<AppAccount>;
   login: (account: AppAccount) => void;
   refresh: () => Promise<void>;
   switchAccount: (account: AppAccount) => void;
+  createLocalClient: (name: string, username?: string) => Promise<AppAccount>;
+  resetToDefaults: () => void;
   signOut: () => Promise<void>;
 };
 
@@ -41,141 +40,140 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<AppAccount | null>(null);
   const [accounts, setAccounts] = useState<AppAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const configured = isSupabaseConfigured();
 
   const refresh = useCallback(async () => {
-    const session = await supabase.auth.getSession();
-    if (!session.data.session) {
-      setAccounts([]);
-      setAccount(null);
-      setLoading(false);
-      return;
-    }
     try {
-      // Bootstrap returns the existing account or a structured no_account error.
-      const next = await bootstrapAccount();
-      // Load coach-authored content + payment settings BEFORE the account is
-      // visible so components read hydrated data on first render.
-      await hydrateCloudCache();
-      await hydratePaymentSettings();
-      setAccount(next);
-      setAccounts([next]);
-    } catch (error) {
-      if (error instanceof NoAccountError) {
-        // Signed in but no app account yet — the access page drives creation.
-        console.warn("Signed-in identity has no app account yet:", error.message);
-      } else {
-        console.error("Account bootstrap failed", error);
+      const all = readLocalAccounts();
+      setAccounts(all);
+      const activeId = readActiveAccountId();
+      let active = all.find((acc) => acc.id === activeId) ?? null;
+      if (!active && all.length > 0) {
+        active = all.find((acc) => acc.role === "coach") ?? all[0];
+        storeActiveAccountId(active.id);
       }
-      setAccount(null);
-      setAccounts([]);
+      setAccount(active);
+      try {
+        await hydrateCloudCache();
+        await hydratePaymentSettings();
+      } catch {
+        // hydration is best-effort in prototype mode
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!configured) {
-      setLoading(false);
-      return;
-    }
     void refresh();
-    const { data: subscription } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-        void refresh();
-      } else if (event === "SIGNED_OUT") {
-        setAccount(null);
-        setAccounts([]);
-        setLoading(false);
-      }
-    });
-    return () => {
-      subscription.subscription.unsubscribe();
-    };
-  }, [configured, refresh]);
+  }, [refresh]);
 
-  const signInWithGoogle = useCallback(async () => {
-    const redirectTo =
-      typeof window !== "undefined" ? `${window.location.origin}/access` : undefined;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: redirectTo ? { redirectTo } : undefined,
-    });
-    if (error) throw error;
-    // OAuth redirects away; on return, AccountAccess resumes the flow.
+  const login = useCallback((next: AppAccount) => {
+    storeActiveAccountId(next.id);
+    setAccount(next);
+    const all = readLocalAccounts();
+    setAccounts(all);
+    try {
+      void hydrateCloudCache();
+      void hydratePaymentSettings();
+    } catch {
+      // local prototype hydration
+    }
   }, []);
 
-  const completeAccessCodeAccount = useCallback(
-    async (name: string, username: string, ticket: string): Promise<AppAccount> => {
-      const next = await createClientAccount({ name, username, ticket });
-      setAccount(next);
-      setAccounts([next]);
-      return next;
+  const switchAccount = useCallback(
+    (next: AppAccount) => {
+      login(next);
     },
-    [],
+    [login],
+  );
+
+  const createLocalClient = useCallback(
+    async (name: string, username?: string): Promise<AppAccount> => {
+      const uName =
+        username?.trim() ||
+        `client_${name.toLowerCase().replace(/[^a-z0-9]/g, "")}_${Date.now().toString().slice(-4)}`;
+      const created = await createAccount({
+        name: name.trim(),
+        username: uName,
+        role: "client",
+      });
+      login(created);
+      return created;
+    },
+    [login],
+  );
+
+  const resetToDefaults = useCallback(() => {
+    const defaults = resetLocalAccounts();
+    setAccounts(defaults);
+    const coach = defaults.find((acc) => acc.role === "coach") ?? defaults[0];
+    login(coach);
+  }, [login]);
+
+  const signOut = useCallback(async () => {
+    storeActiveAccountId(null);
+    setAccount(null);
+  }, []);
+
+  // Stubs for legacy interfaces
+  const signInWithGoogle = useCallback(async () => {
+    const all = readLocalAccounts();
+    const client = all.find((acc) => acc.role === "client") ?? all[0];
+    login(client);
+  }, [login]);
+
+  const completeAccessCodeAccount = useCallback(
+    async (name: string, username: string, _ticket: string): Promise<AppAccount> => {
+      return createLocalClient(name, username);
+    },
+    [createLocalClient],
   );
 
   const loginCoach = useCallback(
-    async (password: string): Promise<AppAccount> => {
-      const result = await loginCoachRequest(password);
-      await supabase.auth.setSession({
-        access_token: result.session.access_token,
-        refresh_token: result.session.refresh_token,
-      });
-      setAccount(result.account);
-      setAccounts([result.account]);
-      try {
-        await hydrateCloudCache();
-        await hydratePaymentSettings();
-      } catch {
-        // hydration is best-effort; the account is already usable
-      }
-      return result.account;
+    async (_password: string): Promise<AppAccount> => {
+      const all = readLocalAccounts();
+      const coach = all.find((acc) => acc.role === "coach") ?? all[0];
+      login(coach);
+      return coach;
     },
-    [],
+    [login],
   );
-
-  const login = useCallback((next: AppAccount) => {
-    setAccount(next);
-    setAccounts([next]);
-  }, []);
 
   const value = useMemo<AccountContextValue>(
     () => ({
       account,
       accounts,
       loading,
-      configured,
+      configured: true,
       signInWithGoogle,
       completeAccessCodeAccount,
       loginCoach,
       login,
       refresh,
-      switchAccount: login,
-      signOut: async () => {
-        await supabase.auth.signOut();
-        setAccount(null);
-        setAccounts([]);
-      },
+      switchAccount,
+      createLocalClient,
+      resetToDefaults,
+      signOut,
     }),
     [
       account,
       accounts,
       loading,
-      configured,
       signInWithGoogle,
       completeAccessCodeAccount,
       loginCoach,
       login,
       refresh,
+      switchAccount,
+      createLocalClient,
+      resetToDefaults,
+      signOut,
     ],
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }
 
-// The provider and hook intentionally share this small module.
-// eslint-disable-next-line react-refresh/only-export-components
 export function useAccount() {
   const value = useContext(AccountContext);
   if (!value) throw new Error("useAccount must be used inside AccountProvider");
