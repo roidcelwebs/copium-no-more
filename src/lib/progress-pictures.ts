@@ -27,6 +27,9 @@ export type ProgressPictureMonthGroup = {
 export const PROGRESS_PICTURE_VIEW_STORAGE_KEY = "no-more-copium:client-progress-picture-view:v1";
 export const PROGRESS_PICTURE_HABIT_DAYS = 7;
 export const EMPTY_PROGRESS_PICTURE_BATCHES: ProgressPictureBatch[] = [];
+export const DEFAULT_MONTHLY_REVIVES = 4;
+export const STREAK_REVIVES_STORAGE_KEY = "no-more-copium:streak-revives:v1";
+export const STREAK_DISMISSED_STORAGE_KEY = "no-more-copium:streak-dismissed:v1";
 
 export function sortProgressPictureBatches(
   batches: readonly ProgressPictureBatch[],
@@ -147,7 +150,6 @@ export function calculateProgressPictureConsistency(
     };
   }
 
-  // Generate date array for the last 7 calendar days (from referenceDate - 6 days to referenceDate)
   const days: string[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(referenceDate);
@@ -155,7 +157,6 @@ export function calculateProgressPictureConsistency(
     days.push(localProgressPictureDate(d));
   }
 
-  // Calculate level curve across the 7 days
   let runningLevel = 0;
   const points: ConsistencyPoint[] = [];
 
@@ -167,7 +168,6 @@ export function calculateProgressPictureConsistency(
     } else {
       runningLevel = Math.max(0, runningLevel - 1);
     }
-    // On the very first upload day in history, guarantee level is at least 1
     if (i === days.length - 1 && hasUploadedAny && runningLevel === 0) {
       runningLevel = 1;
     }
@@ -178,12 +178,10 @@ export function calculateProgressPictureConsistency(
     });
   }
 
-  // Calculate consecutive streak days counting backwards from today/yesterday
   let streakDays = 0;
   const todayStr = localProgressPictureDate(referenceDate);
   const checkDate = new Date(referenceDate);
 
-  // If today has no upload, start check from yesterday
   if (!uniqueDates.has(todayStr)) {
     checkDate.setDate(checkDate.getDate() - 1);
   }
@@ -198,7 +196,6 @@ export function calculateProgressPictureConsistency(
     }
   }
 
-  // Fallback: If has uploaded any, streak is at least 1 if uploaded recently
   if (streakDays === 0 && hasUploadedAny) {
     streakDays = Math.min(uniqueDates.size, 1);
   }
@@ -213,4 +210,112 @@ export function calculateProgressPictureConsistency(
     isStreakMode,
     points,
   };
+}
+
+export type MonthlyRevivesState = {
+  monthKey: string;
+  revivesLeft: number;
+};
+
+export function readStreakRevives(clientId: string): number {
+  if (typeof window === "undefined") return DEFAULT_MONTHLY_REVIVES;
+  const currentMonth = localProgressPictureDate().slice(0, 7);
+  try {
+    const raw = window.localStorage.getItem(`${STREAK_REVIVES_STORAGE_KEY}:${clientId}`);
+    if (!raw) return DEFAULT_MONTHLY_REVIVES;
+    const parsed = JSON.parse(raw) as MonthlyRevivesState;
+    if (parsed.monthKey !== currentMonth) {
+      storeStreakRevives(clientId, DEFAULT_MONTHLY_REVIVES);
+      return DEFAULT_MONTHLY_REVIVES;
+    }
+    return typeof parsed.revivesLeft === "number" ? parsed.revivesLeft : DEFAULT_MONTHLY_REVIVES;
+  } catch {
+    return DEFAULT_MONTHLY_REVIVES;
+  }
+}
+
+export function storeStreakRevives(clientId: string, count: number): void {
+  if (typeof window === "undefined") return;
+  const currentMonth = localProgressPictureDate().slice(0, 7);
+  try {
+    const state: MonthlyRevivesState = {
+      monthKey: currentMonth,
+      revivesLeft: Math.max(0, count),
+    };
+    window.localStorage.setItem(`${STREAK_REVIVES_STORAGE_KEY}:${clientId}`, JSON.stringify(state));
+  } catch (err) {
+    console.error("Could not store streak revives", err);
+  }
+}
+
+export function decrementStreakRevives(clientId: string): number {
+  const current = readStreakRevives(clientId);
+  const next = Math.max(0, current - 1);
+  storeStreakRevives(clientId, next);
+  return next;
+}
+
+export function isBrokenStreakDismissed(clientId: string, eventId: string): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(`${STREAK_DISMISSED_STORAGE_KEY}:${clientId}:${eventId}`) === "dismissed";
+}
+
+export function dismissBrokenStreakNotice(clientId: string, eventId: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(`${STREAK_DISMISSED_STORAGE_KEY}:${clientId}:${eventId}`, "dismissed");
+}
+
+export type BrokenStreakCheck = {
+  isBroken: boolean;
+  previousStreak: number;
+  eventId: string;
+};
+
+/**
+ * Detects if a client had an established streak, missed the daily window, and opens the app today.
+ */
+export function checkBrokenStreak(
+  batches: readonly ProgressPictureBatch[],
+  clientId: string,
+  referenceDate = new Date(),
+): BrokenStreakCheck {
+  const uniqueDates = new Set(
+    batches
+      .map((batch) => batch.captureDate)
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)),
+  );
+
+  const todayStr = localProgressPictureDate(referenceDate);
+  const yesterday = new Date(referenceDate);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = localProgressPictureDate(yesterday);
+
+  if (uniqueDates.has(yesterdayStr) || uniqueDates.has(todayStr)) {
+    return { isBroken: false, previousStreak: 0, eventId: "" };
+  }
+
+  const dayBeforeYesterday = new Date(yesterday);
+  dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 1);
+
+  let prevStreak = 0;
+  const cursor = new Date(dayBeforeYesterday);
+  for (let i = 0; i < 365; i++) {
+    const dStr = localProgressPictureDate(cursor);
+    if (uniqueDates.has(dStr)) {
+      prevStreak++;
+      cursor.setDate(cursor.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+
+  if (prevStreak >= 1) {
+    const eventId = `broken-${yesterdayStr}-${prevStreak}`;
+    const dismissed = isBrokenStreakDismissed(clientId, eventId);
+    if (!dismissed) {
+      return { isBroken: true, previousStreak: prevStreak, eventId };
+    }
+  }
+
+  return { isBroken: false, previousStreak: 0, eventId: "" };
 }
