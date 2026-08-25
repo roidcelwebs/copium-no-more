@@ -93,22 +93,16 @@ export function ProgressPicturesDashboardSection({
       )}
 
       {!hasTodayBatch && (
-        <div className="space-y-2.5">
+        <div>
           <Button
             type="button"
             className="min-h-12 w-full justify-center rounded-xl text-[1rem] font-semibold"
             disabled={loading || error !== null}
-            aria-describedby="progress-upload-status"
             onClick={() => setUploadOpen(true)}
           >
             <Camera className="h-5 w-5" aria-hidden="true" />
             Take today&apos;s progress pictures
           </Button>
-          <p id="progress-upload-status" className="text-[1rem] leading-5 text-muted-foreground">
-            {loading
-              ? "Checking today's progress pictures..."
-              : "Choose your camera or gallery. Pictures are optimized before local storage."}
-          </p>
         </div>
       )}
 
@@ -144,7 +138,7 @@ function HabitProgress({ completedDays }: { completedDays: number }) {
                 "flex aspect-square items-center justify-center rounded-lg border",
                 complete
                   ? "border-primary bg-primary text-primary-foreground"
-                  : "border-dashed border-border bg-muted/30 text-muted-foreground",
+                  : "border-border/80 bg-muted/20 text-muted-foreground",
               )}
               aria-label={`Day ${index + 1} ${complete ? "complete" : "not complete"}`}
             >
@@ -162,7 +156,7 @@ function HabitProgress({ completedDays }: { completedDays: number }) {
           "mt-2 flex min-h-12 items-center justify-center rounded-lg border",
           completedDays >= 7
             ? "border-primary bg-primary text-primary-foreground"
-            : "border-dashed border-border bg-muted/30 text-muted-foreground",
+            : "border-border/80 bg-muted/20 text-muted-foreground",
         )}
         aria-label={`Day 7 ${completedDays >= 7 ? "complete" : "not complete"}`}
       >
@@ -178,9 +172,6 @@ function HabitProgress({ completedDays }: { completedDays: number }) {
           </span>
         )}
       </div>
-      <p className="mt-2 text-right text-[1rem] font-medium leading-5 text-muted-foreground">
-        {completedDays}/7 days
-      </p>
     </div>
   );
 }

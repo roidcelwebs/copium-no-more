@@ -179,8 +179,7 @@ export function ProgressPictureUploadDialog({
             {allowDateSelection ? "Add progress pictures" : "Today’s progress pictures"}
           </DialogTitle>
           <DialogDescription>
-            Add up to six pictures per date. They are resized, converted to WebP, and stripped of
-            camera metadata before local storage.
+            Add up to six pictures per day.
           </DialogDescription>
         </DialogHeader>
 
@@ -335,10 +334,6 @@ export function ProgressPictureUploadDialog({
           </p>
         )}
 
-        <p className="text-xs text-muted-foreground">
-          The original files never leave this device. This remains a passwordless prototype, so do
-          not use sensitive real-client photos.
-        </p>
 
         <DialogFooter>
           <Button

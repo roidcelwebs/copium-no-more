@@ -297,7 +297,7 @@ function TodayState({
   }
 
   return (
-    <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6">
+    <div className="rounded-xl border border-border bg-card/60 p-6 shadow-sm">
       <h3 className="text-[1.125rem] font-semibold leading-tight text-foreground">{title}</h3>
       <p className="mt-1.5 text-[1rem] leading-6 text-muted-foreground">{description}</p>
     </div>
