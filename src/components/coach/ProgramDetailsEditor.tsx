@@ -142,7 +142,7 @@ export function ProgramDetailsEditor({
               maxLength={PROGRAM_LONG_DESCRIPTION_MAX_LENGTH}
               rows={6}
               placeholder="Describe the program’s goals, structure, and intended experience"
-              onChange={(event) => onChange({ longDescription: event.target.value })}
+              onChange={(event) => handleChange({ longDescription: event.target.value })}
             />
             <CharacterCount
               value={program.longDescription}
