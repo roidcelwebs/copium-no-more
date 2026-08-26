@@ -127,7 +127,7 @@ export function ProgramDetailsEditor({
               rows={3}
               placeholder="Add a concise program summary"
               className="min-h-20 resize-y"
-              onChange={(event) => onChange({ shortDescription: event.target.value })}
+              onChange={(event) => handleChange({ shortDescription: event.target.value })}
             />
             <CharacterCount
               value={program.shortDescription}
