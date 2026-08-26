@@ -81,11 +81,6 @@ export function ClientShell() {
             No More Copium
           </Link>
           <div className="flex items-center gap-1">
-            {account.isPreview && (
-              <span className="rounded-md border border-border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                Client Preview
-              </span>
-            )}
             <ChatButton />
             <SettingsMenu />
           </div>
