@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,20 +31,29 @@ import {
 export function ProgramWorkoutsSection({
   programId,
   showHeading = true,
+  workouts: externalWorkouts,
+  onWorkoutsChange,
 }: {
   programId?: string;
   showHeading?: boolean;
+  workouts?: ProgramWorkout[];
+  onWorkoutsChange?: Dispatch<SetStateAction<ProgramWorkout[]>>;
 }) {
-  const [workouts, setWorkouts] = useState<ProgramWorkout[]>([]);
+  const [internalWorkouts, setInternalWorkouts] = useState<ProgramWorkout[]>([]);
   const [programs, setPrograms] = useState<ProgramSummary[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ProgramWorkout | null>(null);
   const navigate = useNavigate();
 
+  const workouts = externalWorkouts ?? internalWorkouts;
+  const setWorkouts = onWorkoutsChange ?? setInternalWorkouts;
+
   useEffect(() => {
-    setWorkouts(loadWorkouts());
     setPrograms(loadPrograms());
+    if (externalWorkouts === undefined) {
+      setInternalWorkouts(loadWorkouts());
+    }
     setHydrated(true);
   }, []);
 

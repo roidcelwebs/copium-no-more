@@ -19,11 +19,12 @@ import { uploadProgramCover } from "@/lib/program-covers";
 
 export function ProgramDetailsEditor({
   program,
-  onChange,
+  onSave,
 }: {
   program: ProgramSummary;
-  onChange: (updates: Partial<ProgramSummary>) => void;
+  onSave: (updated: ProgramSummary) => void;
 }) {
+  const handleChange = (updates: Partial<ProgramSummary>) => onSave({ ...program, ...updates });
   const { account } = useAccount();
   const covers = useProgramCoverUrls([program]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +43,7 @@ export function ProgramDetailsEditor({
         programId: program.id,
         cover: processed,
       });
-      onChange({ coverImagePath, coverUpdatedAt: new Date().toISOString() });
+      handleChange({ coverImagePath, coverUpdatedAt: new Date().toISOString() });
     } catch (nextError) {
       console.error("Failed to update program cover", nextError);
       setError(nextError instanceof Error ? nextError.message : "The cover could not be updated.");
@@ -112,9 +113,9 @@ export function ProgramDetailsEditor({
               value={program.name}
               maxLength={PROGRAM_NAME_MAX_LENGTH}
               onChange={(event) => {
-                if (event.target.value.trim()) onChange({ name: event.target.value });
+                if (event.target.value.trim()) handleChange({ name: event.target.value });
               }}
-              onBlur={() => onChange({ name: program.name.trim() })}
+              onBlur={() => handleChange({ name: program.name.trim() })}
             />
           </div>
           <div className="space-y-1">
@@ -126,7 +127,7 @@ export function ProgramDetailsEditor({
               rows={3}
               placeholder="Add a concise program summary"
               className="min-h-20 resize-y"
-              onChange={(event) => onChange({ shortDescription: event.target.value })}
+              onChange={(event) => handleChange({ shortDescription: event.target.value })}
             />
             <CharacterCount
               value={program.shortDescription}
@@ -141,7 +142,7 @@ export function ProgramDetailsEditor({
               maxLength={PROGRAM_LONG_DESCRIPTION_MAX_LENGTH}
               rows={6}
               placeholder="Describe the program’s goals, structure, and intended experience"
-              onChange={(event) => onChange({ longDescription: event.target.value })}
+              onChange={(event) => handleChange({ longDescription: event.target.value })}
             />
             <CharacterCount
               value={program.longDescription}
