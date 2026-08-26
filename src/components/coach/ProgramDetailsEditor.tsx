@@ -113,9 +113,9 @@ export function ProgramDetailsEditor({
               value={program.name}
               maxLength={PROGRAM_NAME_MAX_LENGTH}
               onChange={(event) => {
-                if (event.target.value.trim()) onChange({ name: event.target.value });
+                if (event.target.value.trim()) handleChange({ name: event.target.value });
               }}
-              onBlur={() => onChange({ name: program.name.trim() })}
+              onBlur={() => handleChange({ name: program.name.trim() })}
             />
           </div>
           <div className="space-y-1">
