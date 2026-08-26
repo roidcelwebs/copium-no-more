@@ -643,6 +643,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientProgramRouteImport
       parentRoute: typeof ClientRoute
     }
+    '/client/more': {
+      id: '/client/more'
+      path: '/more'
+      fullPath: '/client/more'
+      preLoaderRoute: typeof ClientMoreRouteImport
+      parentRoute: typeof ClientRoute
+    }
     '/client/dashboard': {
       id: '/client/dashboard'
       path: '/dashboard'
@@ -840,6 +847,7 @@ const ClientProgressPicturesRouteWithChildren =
 interface ClientRouteChildren {
   ClientChatRoute: typeof ClientChatRoute
   ClientDashboardRoute: typeof ClientDashboardRoute
+  ClientMoreRoute: typeof ClientMoreRoute
   ClientProgramRoute: typeof ClientProgramRouteWithChildren
   ClientProgressPicturesRoute: typeof ClientProgressPicturesRouteWithChildren
   ClientWorkoutHistoryRoute: typeof ClientWorkoutHistoryRoute
@@ -849,6 +857,7 @@ interface ClientRouteChildren {
 const ClientRouteChildren: ClientRouteChildren = {
   ClientChatRoute: ClientChatRoute,
   ClientDashboardRoute: ClientDashboardRoute,
+  ClientMoreRoute: ClientMoreRoute,
   ClientProgramRoute: ClientProgramRouteWithChildren,
   ClientProgressPicturesRoute: ClientProgressPicturesRouteWithChildren,
   ClientWorkoutHistoryRoute: ClientWorkoutHistoryRoute,
