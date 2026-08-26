@@ -26,6 +26,7 @@ import { Route as CoachAccessCodesRouteImport } from './routes/coach.access-code
 import { Route as ClientWorkoutHistoryRouteImport } from './routes/client.workout-history'
 import { Route as ClientProgressPicturesRouteImport } from './routes/client.progress-pictures'
 import { Route as ClientProgramRouteImport } from './routes/client.program'
+import { Route as ClientMoreRouteImport } from './routes/client.more'
 import { Route as ClientDashboardRouteImport } from './routes/client.dashboard'
 import { Route as ClientChatRouteImport } from './routes/client.chat'
 import { Route as CoachProgramsIndexRouteImport } from './routes/coach.programs.index'
@@ -133,6 +134,11 @@ const ClientProgressPicturesRoute = ClientProgressPicturesRouteImport.update({
 const ClientProgramRoute = ClientProgramRouteImport.update({
   id: '/program',
   path: '/program',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientMoreRoute = ClientMoreRouteImport.update({
+  id: '/more',
+  path: '/more',
   getParentRoute: () => ClientRoute,
 } as any)
 const ClientDashboardRoute = ClientDashboardRouteImport.update({
@@ -272,6 +278,7 @@ export interface FileRoutesByFullPath {
   '/payment': typeof PaymentRouteWithChildren
   '/client/chat': typeof ClientChatRoute
   '/client/dashboard': typeof ClientDashboardRoute
+  '/client/more': typeof ClientMoreRoute
   '/client/program': typeof ClientProgramRouteWithChildren
   '/client/progress-pictures': typeof ClientProgressPicturesRouteWithChildren
   '/client/workout-history': typeof ClientWorkoutHistoryRoute
@@ -314,6 +321,7 @@ export interface FileRoutesByTo {
   '/payment': typeof PaymentRouteWithChildren
   '/client/chat': typeof ClientChatRoute
   '/client/dashboard': typeof ClientDashboardRoute
+  '/client/more': typeof ClientMoreRoute
   '/client/workout-history': typeof ClientWorkoutHistoryRoute
   '/coach/access-codes': typeof CoachAccessCodesRoute
   '/coach/dashboard': typeof CoachDashboardRoute
@@ -348,6 +356,7 @@ export interface FileRoutesById {
   '/payment': typeof PaymentRouteWithChildren
   '/client/chat': typeof ClientChatRoute
   '/client/dashboard': typeof ClientDashboardRoute
+  '/client/more': typeof ClientMoreRoute
   '/client/program': typeof ClientProgramRouteWithChildren
   '/client/progress-pictures': typeof ClientProgressPicturesRouteWithChildren
   '/client/workout-history': typeof ClientWorkoutHistoryRoute
@@ -392,6 +401,7 @@ export interface FileRouteTypes {
     | '/payment'
     | '/client/chat'
     | '/client/dashboard'
+    | '/client/more'
     | '/client/program'
     | '/client/progress-pictures'
     | '/client/workout-history'
@@ -434,6 +444,7 @@ export interface FileRouteTypes {
     | '/payment'
     | '/client/chat'
     | '/client/dashboard'
+    | '/client/more'
     | '/client/workout-history'
     | '/coach/access-codes'
     | '/coach/dashboard'
@@ -467,6 +478,7 @@ export interface FileRouteTypes {
     | '/payment'
     | '/client/chat'
     | '/client/dashboard'
+    | '/client/more'
     | '/client/program'
     | '/client/progress-pictures'
     | '/client/workout-history'
