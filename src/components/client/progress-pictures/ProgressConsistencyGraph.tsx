@@ -79,7 +79,7 @@ export function ProgressConsistencyGraph({
           <p className="mt-1 text-[0.875rem] text-muted-foreground">
             {consistency.isStreakMode
               ? "Keep uploading daily to maintain your active streak"
-              : `Level ${consistency.currentLevel} of 7 — upload daily to reach max streak`}
+              : "Upload daily to level up"}
           </p>
         </div>
 
