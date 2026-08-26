@@ -17,7 +17,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 
 export function ClientMorePage() {
   const navigate = useNavigate();
@@ -65,14 +64,9 @@ export function ClientMorePage() {
               <ScanFace className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="text-[1.0625rem] font-semibold text-foreground">
-                  Get Your Face Analysis
-                </h2>
-                <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary text-[0.6875rem] font-semibold">
-                  Human Rated
-                </Badge>
-              </div>
+              <h2 className="text-[1.0625rem] font-semibold text-foreground">
+                Get Your Face Analysis
+              </h2>
               <p className="mt-0.5 text-[0.875rem] leading-5 font-medium text-muted-foreground">
                 No AI used, Human analyzed rating
               </p>
