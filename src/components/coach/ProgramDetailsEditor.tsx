@@ -19,11 +19,12 @@ import { uploadProgramCover } from "@/lib/program-covers";
 
 export function ProgramDetailsEditor({
   program,
-  onChange,
+  onSave,
 }: {
   program: ProgramSummary;
-  onChange: (updates: Partial<ProgramSummary>) => void;
+  onSave: (updated: ProgramSummary) => void;
 }) {
+  const handleChange = (updates: Partial<ProgramSummary>) => onSave({ ...program, ...updates });
   const { account } = useAccount();
   const covers = useProgramCoverUrls([program]);
   const inputRef = useRef<HTMLInputElement>(null);
