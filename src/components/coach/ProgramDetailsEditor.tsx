@@ -43,7 +43,7 @@ export function ProgramDetailsEditor({
         programId: program.id,
         cover: processed,
       });
-      onChange({ coverImagePath, coverUpdatedAt: new Date().toISOString() });
+      handleChange({ coverImagePath, coverUpdatedAt: new Date().toISOString() });
     } catch (nextError) {
       console.error("Failed to update program cover", nextError);
       setError(nextError instanceof Error ? nextError.message : "The cover could not be updated.");
