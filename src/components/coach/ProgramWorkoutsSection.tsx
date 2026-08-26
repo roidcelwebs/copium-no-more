@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
